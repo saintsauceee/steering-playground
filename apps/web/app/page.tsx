@@ -3,45 +3,87 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 
-type Modality = "image" | "text";
+type ImageSample = { alpha: number; path: string };
+type TextSample = { alpha: number; output: string };
 
-type Row = {
-  modality: Modality;
-  concept: string;
-  pos_concept: string;
-  neg_concept: string;
-  alpha: number;
-  prompt_idx: number;
+type Prompt = {
+  subject: string;
   prompt: string;
-  run: number;
-  steered: string;
-  baseline: string;
+  image?: { baseline?: string; samples: ImageSample[] };
+  text?: { baseline?: string; samples: TextSample[] };
 };
 
-type Manifest = { rows: Row[] };
+type Concept = {
+  name: string;
+  neg: string;
+  pos: string;
+  prompts: Prompt[];
+};
+
+type Manifest = { concepts: Concept[] };
+
+type TextExperiment = { layers: string; alpha: number; completion: string };
+type TextEntry = {
+  concept: string;
+  subject: string;
+  prompt: string;
+  baseline: string;
+  steered_experiments: TextExperiment[];
+};
+
+type Precision = "single" | "many" | "all";
+type LayerRange = string;
 
 const DATA_PREFIX = "/data/";
+const PRECISIONS: Precision[] = ["single", "many", "all"];
+const LAYER_OPTIONS: Record<Precision, LayerRange[]> = {
+  single: ["5", "9", "12", "16", "26"],
+  many: ["4-7", "9-12", "16-18", "22-28"],
+  all: ["0-29"],
+};
 
-type ConceptDef = { name: string; subjects: string[] };
-
-const CONCEPTS: ConceptDef[] = [
-  { name: "age", subjects: ["person", "park", "musician", "scientist"] },
-  { name: "emotion", subjects: ["face", "letter", "student", "friends"] },
-  { name: "cleanness", subjects: ["countertop", "sneakers", "sofa", "car"] },
-  { name: "color", subjects: ["car", "backpack", "balloon", "raincoat"] },
+const IMAGE_ALPHAS_SINGLE: number[] = [
+  -1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0,
 ];
+const IMAGE_ALPHAS_ALL: number[] = [
+  -0.25, -0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2, 0.25,
+];
+
+function textLayerKey(precision: Precision, layerRange: string): string {
+  if (precision === "single") return layerRange;
+  const [a, b] = layerRange.split("-");
+  return `(${a}, ${b})`;
+}
 
 export default function Home() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
+  const [textSamples, setTextSamples] = useState<TextEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [precision, setPrecision] = useState<Precision>("single");
+  const [layerRange, setLayerRange] = useState<LayerRange>(
+    LAYER_OPTIONS.single[0],
+  );
+  const [conceptName, setConceptName] = useState<string | null>(null);
+
+  const handlePrecisionChange = (p: Precision) => {
+    setPrecision(p);
+    setLayerRange(LAYER_OPTIONS[p][0]);
+  };
 
   useEffect(() => {
-    fetch(`${DATA_PREFIX}manifest.json`)
+    fetch(`${DATA_PREFIX}manifest.json`, { cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
         return r.json() as Promise<Manifest>;
       })
       .then(setManifest)
+      .catch((e) => setError(String(e)));
+    fetch(`${DATA_PREFIX}text_samples.json`, { cache: "no-store" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        return r.json() as Promise<TextEntry[]>;
+      })
+      .then(setTextSamples)
       .catch((e) => setError(String(e)));
   }, []);
 
@@ -67,10 +109,26 @@ export default function Home() {
   return (
     <Shell>
       <Header />
-      <section className="grid grid-cols-1 gap-10 xl:grid-cols-2">
-        {CONCEPTS.map((c) => (
-          <ComparisonRow key={c.name} def={c} manifest={manifest} />
-        ))}
+      <section className="flex flex-col">
+        {(() => {
+          const concept =
+            manifest.concepts.find((c) => c.name === conceptName) ??
+            manifest.concepts[0];
+          if (!concept) return null;
+          return (
+            <ConceptBlock
+              key={concept.name}
+              concept={concept}
+              allConcepts={manifest.concepts}
+              setConceptName={setConceptName}
+              textSamples={textSamples ?? []}
+              precision={precision}
+              setPrecision={handlePrecisionChange}
+              layerRange={layerRange}
+              setLayerRange={setLayerRange}
+            />
+          );
+        })()}
       </section>
     </Shell>
   );
@@ -78,7 +136,7 @@ export default function Home() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-16 px-6 py-14 sm:px-8 sm:py-20">
+    <div className="mx-auto flex w-full max-w-4xl flex-col px-4">
       {children}
     </div>
   );
@@ -86,11 +144,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Header() {
   return (
-    <header className="flex flex-col gap-3">
+    <header className="flex flex-col gap-2 pt-16 pb-8">
       <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
         Activation Steering
       </span>
-      <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
         Steering Playground
       </h1>
       <span className="font-mono text-[11px] text-muted">
@@ -100,175 +158,294 @@ function Header() {
   );
 }
 
-function ComparisonRow({
-  def,
-  manifest,
-}: {
-  def: ConceptDef;
-  manifest: Manifest;
-}) {
-  const concept = def.name;
-  const conceptRows = useMemo(
-    () =>
-      manifest.rows.filter((r) => r.concept === concept && r.run === 0),
-    [manifest, concept],
-  );
-
-  const promptIdxs = useMemo(() => {
-    const set = new Set<number>();
-    for (const r of conceptRows) set.add(r.prompt_idx);
+function useAlphas(samples: { alpha: number }[], fixed?: number[]) {
+  const alphas = useMemo(() => {
+    if (fixed) return fixed;
+    const set = new Set<number>([0]);
+    for (const s of samples) set.add(s.alpha);
     return Array.from(set).sort((a, b) => a - b);
-  }, [conceptRows]);
+  }, [samples, fixed]);
+  const zeroIdx = Math.max(0, alphas.indexOf(0));
+  const [idx, setIdx] = useState<number>(zeroIdx);
+  useEffect(() => setIdx(zeroIdx), [zeroIdx]);
+  return { alphas, idx, setIdx, zeroIdx, alpha: alphas[idx] ?? 0 };
+}
 
-  const [promptIdx, setPromptIdx] = useState<number>(promptIdxs[0] ?? 0);
-  useEffect(() => {
-    if (!promptIdxs.includes(promptIdx)) setPromptIdx(promptIdxs[0] ?? 0);
-  }, [promptIdxs, promptIdx]);
+const TEXT_ALPHAS: number[] = Array.from({ length: 21 }, (_, i) =>
+  Number((-1 + i * 0.1).toFixed(1)),
+);
 
-  const imageRows = useMemo(
-    () =>
-      conceptRows.filter(
-        (r) => r.modality === "image" && r.prompt_idx === promptIdx,
-      ),
-    [conceptRows, promptIdx],
+function ConceptBlock({
+  concept,
+  allConcepts,
+  setConceptName,
+  textSamples,
+  precision,
+  setPrecision,
+  layerRange,
+  setLayerRange,
+}: {
+  concept: Concept;
+  allConcepts: Concept[];
+  setConceptName: (v: string) => void;
+  textSamples: TextEntry[];
+  precision: Precision;
+  setPrecision: (v: Precision) => void;
+  layerRange: LayerRange;
+  setLayerRange: (v: LayerRange) => void;
+}) {
+  const [subject, setSubject] = useState<string>(
+    concept.prompts[0]?.subject ?? "",
   );
-  const textRows = useMemo(
-    () =>
-      conceptRows.filter(
-        (r) => r.modality === "text" && r.prompt_idx === promptIdx,
-      ),
-    [conceptRows, promptIdx],
+  const prompt =
+    concept.prompts.find((p) => p.subject === subject) ?? concept.prompts[0];
+
+  const imgSamples = prompt?.image?.samples ?? [];
+  const imgCtl = useAlphas(
+    imgSamples,
+    precision === "all" ? IMAGE_ALPHAS_ALL : IMAGE_ALPHAS_SINGLE,
   );
 
-  const meta = imageRows[0] ?? textRows[0];
-  if (!meta) return null;
+  const txtEntry = textSamples.find(
+    (e) => e.concept === concept.name && e.subject === subject,
+  );
+  const txtCtl = useAlphas([], TEXT_ALPHAS);
 
-  const currentPrompt =
-    imageRows[0]?.prompt ?? textRows[0]?.prompt ?? "";
+  if (!prompt) return null;
+
+  const imgDir = `images/featured/${concept.name}/${subject}/${precision}/${layerRange}`;
+  const imgPath =
+    imgCtl.alpha === 0
+      ? `${imgDir}/a_baseline.png`
+      : `${imgDir}/${imgCtl.alpha < 0 ? "neg" : "pos"}_${Math.abs(imgCtl.alpha).toFixed(2)}.png`;
+  const txtLayerKey = textLayerKey(precision, layerRange);
+  const rawTxtOutput =
+    txtCtl.alpha === 0
+      ? txtEntry?.baseline
+      : txtEntry?.steered_experiments.find(
+          (e) =>
+            e.layers === txtLayerKey &&
+            Math.abs(e.alpha - txtCtl.alpha) < 1e-6,
+        )?.completion;
+  // Collapse whitespace runs to a single space so garbage completions
+  // (endless newlines, token repetition) render as continuous text.
+  const txtOutput = rawTxtOutput?.replace(/\s+/g, " ").trim();
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2 border-b border-border pb-3">
+    <div className="flex flex-col gap-3 py-4">
+      <div className="flex flex-col gap-2 border-b border-border pb-2">
         <div className="flex items-baseline justify-between gap-3">
           <div className="flex items-baseline gap-3">
-            <h2 className="text-lg font-semibold capitalize tracking-tight">
-              {meta.concept}
+            <h2 className="text-xl tracking-tight">
+              <span className="font-semibold capitalize">{subject}</span>
+              <span className="mx-2 font-normal text-muted">·</span>
+              <span className="font-normal capitalize text-muted">
+                {concept.name}
+              </span>
             </h2>
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
-              {meta.neg_concept} / {meta.pos_concept}
+            <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
+              {concept.neg} / {concept.pos}
             </span>
           </div>
-          <select
-            value={promptIdx}
-            onChange={(e) => setPromptIdx(Number(e.target.value))}
-            className="cursor-pointer rounded border border-border bg-card px-2 py-1 pr-6 text-xs capitalize transition-colors hover:border-foreground/40 focus:border-foreground focus:outline-none"
-          >
-            {promptIdxs.map((pi) => (
-              <option key={pi} value={pi}>
-                {def.subjects[pi] ?? `prompt ${pi + 1}`}
-              </option>
-            ))}
-          </select>
         </div>
-        <p className="font-mono text-[11px] italic text-muted">
-          “{currentPrompt}”
-        </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <ModalityCard
-          key={`image-${promptIdx}`}
-          label="image"
-          modality="image"
-          rows={imageRows}
-        />
-        <ModalityCard
-          key={`text-${promptIdx}`}
-          label="text"
-          modality="text"
-          rows={textRows}
-        />
+      <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-[1fr_18rem]">
+        <div className="flex min-h-0 flex-col gap-3">
+          <ContentBox label="text" alpha={txtCtl.alpha} className="h-36 shrink-0">
+            {txtOutput ? (
+              <div className="h-full w-full overflow-y-auto p-4 text-[15px] leading-relaxed">
+                {txtOutput}
+              </div>
+            ) : (
+              <EmptyCell />
+            )}
+          </ContentBox>
+          <ContentBox label="image" alpha={imgCtl.alpha} fitImage>
+            {imgPath ? (
+              <Image
+                src={`/${imgPath}`}
+                alt={concept.name}
+                width={768}
+                height={576}
+                unoptimized
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <EmptyCell />
+            )}
+          </ContentBox>
+        </div>
+
+        <aside className="flex h-full flex-col gap-4 overflow-y-auto rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-2">
+            <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
+              Subject
+            </span>
+            <select
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="rounded-md border border-border bg-background px-2 py-1.5 font-mono text-[12px] text-foreground focus:outline-none"
+            >
+              {concept.prompts.map((p) => (
+                <option key={p.subject} value={p.subject}>
+                  {p.subject}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
+              Concept
+            </span>
+            <select
+              value={concept.name}
+              onChange={(e) => setConceptName(e.target.value)}
+              className="rounded-md border border-border bg-background px-2 py-1.5 font-mono text-[12px] text-foreground focus:outline-none"
+            >
+              {allConcepts.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="h-px bg-border" />
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
+                Layer Range
+              </span>
+            </div>
+            <OptionSlider
+              options={PRECISIONS}
+              value={precision}
+              onChange={setPrecision}
+            />
+            <OptionSlider
+              options={LAYER_OPTIONS[precision]}
+              value={layerRange}
+              onChange={setLayerRange}
+            />
+          </div>
+          <div className="h-px bg-border" />
+          <SliderControl
+            label="text"
+            neg={concept.neg}
+            pos={concept.pos}
+            alphas={txtCtl.alphas}
+            idx={txtCtl.idx}
+            setIdx={txtCtl.setIdx}
+            zeroIdx={txtCtl.zeroIdx}
+            alpha={txtCtl.alpha}
+          />
+          <div className="h-px bg-border" />
+          <SliderControl
+            label="image"
+            neg={concept.neg}
+            pos={concept.pos}
+            alphas={imgCtl.alphas}
+            idx={imgCtl.idx}
+            setIdx={imgCtl.setIdx}
+            zeroIdx={imgCtl.zeroIdx}
+            alpha={imgCtl.alpha}
+          />
+        </aside>
       </div>
     </div>
   );
 }
 
-function ModalityCard({
+function ContentBox({
   label,
-  modality,
-  rows,
+  alpha,
+  children,
+  className,
+  fitImage,
 }: {
   label: string;
-  modality: Modality;
-  rows: Row[];
+  alpha: number;
+  children: React.ReactNode;
+  className?: string;
+  fitImage?: boolean;
 }) {
-  const alphas = useMemo(() => sortedAlphas(rows), [rows]);
-  const zeroIdx = useMemo(() => {
-    const i = alphas.indexOf(0);
-    return i >= 0 ? i : Math.floor(alphas.length / 2);
-  }, [alphas]);
-
-  const [idx, setIdx] = useState<number>(zeroIdx);
-  useEffect(() => setIdx(zeroIdx), [zeroIdx]);
-
-  const meta = rows[0];
-  if (!meta) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted">
-        no {label} data
-      </div>
-    );
-  }
-
-  const alpha = alphas[idx] ?? 0;
-  const row = rows.find((r) => r.alpha === alpha);
-  const content =
-    alpha === 0 ? (row?.baseline ?? row?.steered) : row?.steered;
-
   const sign = alpha > 0 ? "+" : alpha < 0 ? "−" : "";
   const displayAlpha = alpha === 0 ? "0" : `${sign}${Math.abs(alpha)}`;
-
   return (
-    <article className="flex h-full flex-col gap-3 rounded-lg border border-border bg-card p-3">
+    <article
+      className={`flex flex-col gap-2 rounded-lg border border-border bg-card p-3 ${
+        className ?? ""
+      }`}
+    >
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+        <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
           {label}
         </span>
-        <span className="font-mono text-[11px] tabular-nums text-muted">
-          α {displayAlpha}
+        <span className="font-mono text-[13px] tabular-nums text-muted">
+          α = {displayAlpha}
         </span>
       </div>
-
-      <div className="flex-1 overflow-hidden rounded-md border border-border bg-background min-h-72">
-        {!content ? (
-          <div className="flex h-full items-center justify-center text-xs text-muted">
-            —
-          </div>
-        ) : modality === "image" ? (
-          <Image
-            src={`${DATA_PREFIX}${content}`}
-            alt={meta.concept}
-            width={768}
-            height={576}
-            unoptimized
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="h-full w-full overflow-y-auto p-4 text-[14px] leading-relaxed whitespace-pre-wrap">
-            {content}
-          </div>
-        )}
+      <div
+        className={`min-h-0 overflow-hidden rounded-md border border-border bg-background ${
+          fitImage ? "aspect-[4/3] w-full self-start" : "flex-1"
+        }`}
+      >
+        {children}
       </div>
+    </article>
+  );
+}
 
-      <div className="flex h-4.5 items-center gap-3">
-        <span
-          className={`inline-flex h-4.5 items-center font-mono text-[10px] leading-none uppercase tracking-widest transition-colors ${
-            alpha < 0 ? "text-foreground" : "text-muted/60"
-          }`}
-        >
-          {meta.neg_concept}
+function SliderControl({
+  label,
+  neg,
+  pos,
+  alphas,
+  idx,
+  setIdx,
+  zeroIdx,
+  alpha,
+}: {
+  label: string;
+  neg: string;
+  pos: string;
+  alphas: number[];
+  idx: number;
+  setIdx: (n: number) => void;
+  zeroIdx: number;
+  alpha: number;
+}) {
+  const sign = alpha > 0 ? "+" : alpha < 0 ? "−" : "";
+  const displayAlpha = alpha === 0 ? "0" : `${sign}${Math.abs(alpha)}`;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
+          {label}
         </span>
-        <div className="relative flex h-4.5 flex-1 items-center">
+        <span className="font-mono text-[13px] tabular-nums text-foreground">
+          <span className="text-muted">α = </span>
+          {displayAlpha}
+        </span>
+      </div>
+      <div className="flex flex-col gap-2 px-4">
+        <div className="flex items-center justify-between font-mono text-[11px] leading-none uppercase tracking-widest">
+          <span
+            className={`transition-colors ${
+              alpha < 0 ? "text-foreground" : "text-muted"
+            }`}
+          >
+            {neg}
+          </span>
+          <span
+            className={`transition-colors ${
+              alpha > 0 ? "text-foreground" : "text-muted"
+            }`}
+          >
+            {pos}
+          </span>
+        </div>
+        <div className="relative flex h-4.5 items-center">
           <input
             type="range"
             min={0}
@@ -277,6 +454,7 @@ function ModalityCard({
             value={idx}
             onChange={(e) => setIdx(Number(e.target.value))}
             className="slider relative z-10"
+            disabled={alphas.length <= 1}
           />
           <div
             className="pointer-events-none absolute top-1/2 h-2 w-px -translate-x-1/2 -translate-y-1/2 bg-foreground/25"
@@ -285,21 +463,76 @@ function ModalityCard({
             }}
           />
         </div>
-        <span
-          className={`inline-flex h-4.5 items-center font-mono text-[10px] leading-none uppercase tracking-widest transition-colors ${
-            alpha > 0 ? "text-foreground" : "text-muted/60"
-          }`}
-        >
-          {meta.pos_concept}
-        </span>
       </div>
-    </article>
+    </div>
   );
 }
 
-function sortedAlphas(rows: Row[]): number[] {
-  const set = new Set<number>();
-  for (const r of rows) set.add(r.alpha);
-  set.add(0);
-  return Array.from(set).sort((a, b) => a - b);
+function EmptyCell() {
+  return (
+    <div className="flex h-full items-center justify-center text-xs text-muted">
+      —
+    </div>
+  );
+}
+
+function OptionSlider<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label?: string;
+  options: readonly T[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  const idx = options.indexOf(value);
+  return (
+    <div className="flex flex-col gap-2">
+      {label !== undefined && (
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
+            {label}
+          </span>
+          <span className="font-mono text-[12px] uppercase tracking-widest text-foreground">
+            {value}
+          </span>
+        </div>
+      )}
+      <div className="flex flex-col gap-2 px-4">
+      <div className="relative flex h-4.5 items-center">
+        <input
+          type="range"
+          min={0}
+          max={Math.max(0, options.length - 1)}
+          step={1}
+          value={idx}
+          onChange={(e) => onChange(options[Number(e.target.value)])}
+          className="slider relative z-10"
+          disabled={options.length <= 1}
+        />
+      </div>
+      <div className="relative h-4 font-mono text-[11px] uppercase tracking-widest text-muted">
+        {options.map((r, i) => {
+          const pct =
+            options.length <= 1 ? 50 : (i / (options.length - 1)) * 100;
+          return (
+            <span
+              key={r}
+              className={`absolute top-0 -translate-x-1/2 whitespace-nowrap ${
+                r === value ? "text-foreground" : ""
+              }`}
+              style={{
+                left: `calc(9px + ${pct}% - ${(pct / 100) * 18}px)`,
+              }}
+            >
+              {r}
+            </span>
+          );
+        })}
+      </div>
+      </div>
+    </div>
+  );
 }
