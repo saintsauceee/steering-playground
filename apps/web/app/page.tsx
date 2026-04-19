@@ -34,7 +34,8 @@ type TextEntry = {
 type Precision = "single" | "many" | "all";
 type LayerRange = string;
 
-const DATA_PREFIX = "/data/";
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const DATA_PREFIX = `${BASE_PATH}/data/`;
 const PRECISIONS: Precision[] = ["single", "many", "all"];
 const LAYER_OPTIONS: Record<Precision, LayerRange[]> = {
   single: ["5", "9", "12", "16", "26"],
@@ -264,7 +265,7 @@ function ConceptBlock({
           <ContentBox label="image" alpha={imgCtl.alpha} fitImage>
             {imgPath ? (
               <Image
-                src={`/${imgPath}`}
+                src={`${BASE_PATH}/${imgPath}`}
                 alt={concept.name}
                 width={768}
                 height={576}
