@@ -118,7 +118,6 @@ export default function Home() {
           if (!concept) return null;
           return (
             <ConceptBlock
-              key={concept.name}
               concept={concept}
               allConcepts={manifest.concepts}
               setConceptName={setConceptName}
@@ -238,7 +237,7 @@ function ConceptBlock({
         <div className="flex items-baseline justify-between gap-3">
           <div className="flex items-baseline gap-3">
             <h2 className="text-xl tracking-tight">
-              <span className="font-semibold capitalize">{subject}</span>
+              <span className="font-semibold capitalize">{prompt.prompt}</span>
               <span className="mx-2 font-normal text-muted">·</span>
               <span className="font-normal capitalize text-muted">
                 {concept.name}
@@ -255,7 +254,7 @@ function ConceptBlock({
         <div className="flex min-h-0 flex-col gap-3">
           <ContentBox label="text" alpha={txtCtl.alpha} className="h-36 shrink-0">
             {txtOutput ? (
-              <div className="h-full w-full overflow-y-auto p-4 text-[15px] leading-relaxed">
+              <div className="h-full w-full overflow-y-auto px-4 py-3.5 text-[15px] leading-relaxed">
                 {txtOutput}
               </div>
             ) : (
@@ -290,7 +289,7 @@ function ConceptBlock({
             >
               {concept.prompts.map((p) => (
                 <option key={p.subject} value={p.subject}>
-                  {p.subject}
+                  {p.prompt}
                 </option>
               ))}
             </select>

@@ -8,9 +8,41 @@
         {
           "subject": "Person",
           "prompt": "Person",
-          "image": { "samples": [] },
+          "image": {
+            "samples": []
+          },
           "text": {
             "baseline": "A person sits at a small cafe table, laptop open, cradling a latte.",
+            "samples": []
+          }
+        },
+        {
+          "subject": "Person eating pizza",
+          "prompt": "Person eating pizza",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Person standing in a kitchen",
+          "prompt": "Person standing in a kitchen",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Car parked in a garage",
+          "prompt": "Car parked in a garage",
+          "image": {
+            "samples": []
+          },
+          "text": {
             "samples": []
           }
         }
@@ -24,8 +56,42 @@
         {
           "subject": "Person",
           "prompt": "Person",
-          "image": { "samples": [] },
-          "text": { "samples": [] }
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Person eating pizza",
+          "prompt": "Person eating pizza",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Person standing in a kitchen",
+          "prompt": "Person standing in a kitchen",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Car parked in a garage",
+          "prompt": "Car parked in a garage",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
         }
       ]
     },
@@ -37,8 +103,42 @@
         {
           "subject": "Person",
           "prompt": "Person",
-          "image": { "samples": [] },
-          "text": { "samples": [] }
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Person eating pizza",
+          "prompt": "Person eating pizza",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Person standing in a kitchen",
+          "prompt": "Person standing in a kitchen",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Car parked in a garage",
+          "prompt": "Car parked in a garage",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
         }
       ]
     },
@@ -50,8 +150,42 @@
         {
           "subject": "Person",
           "prompt": "Person",
-          "image": { "samples": [] },
-          "text": { "samples": [] }
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Person eating pizza",
+          "prompt": "Person eating pizza",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Person standing in a kitchen",
+          "prompt": "Person standing in a kitchen",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
+        },
+        {
+          "subject": "Car parked in a garage",
+          "prompt": "Car parked in a garage",
+          "image": {
+            "samples": []
+          },
+          "text": {
+            "samples": []
+          }
         }
       ]
     }
